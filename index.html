@@ -185,6 +185,11 @@ details{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}summar
    <select id="fMan" aria-label="출처"><option value="">모든 매핑</option><option value="manual">수동 지정</option><option value="learned">자동 누적</option><option value="shared">공유 매핑표</option><option value="ex">제외된 매핑</option><option value="rev">확인 필요(추정)</option><option value="stale">셀메이트에 없는 바코드</option></select>
    <select id="cMan" aria-label="판매처"><option value="">모든 판매처</option><option>cafe24</option><option>컬리</option><option>W컨셉</option><option>그로잉</option></select>
   </div>
+  <div class="mapbox" style="margin-top:0">
+   <p class="note" style="margin:0"><b>제외</b> — 이 판매처 상품을 대조 계산에서 아예 뺍니다. 셀메이트와 관계없는 상품(타 브랜드·사은품·부자재)에 씁니다. 재고가 있어도 합계에 들어가지 않고 미매핑 목록에도 뜨지 않습니다.<br>
+   <b>공유값 무시</b> — 공유 매핑표(mapping.json)의 연결이 틀렸을 때, 그 저장값을 쓰지 않고 자동 규칙으로 다시 찾게 합니다. 상품은 계속 대조에 포함됩니다. 올바른 옵션을 알면 "다른 셀메이트 옵션 검색"으로 바로 지정하는 편이 더 정확합니다.<br>
+   <b>수동 해제 · 누적 삭제</b> — 내가 지정한 값 또는 자동으로 쌓인 값을 지워서, 그다음 순서(공유 → 자동 규칙)로 돌아가게 합니다.</p>
+  </div>
   <div id="tMan"></div>
  </div>
 </main>
@@ -482,7 +487,7 @@ const SLOTS = [
 const store = { get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } }, set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} } };
 const DEF_EX = '쇼핑백, 부자재, ROPE BELT, 로프 벨트';
 const DEF_NOTES = {};
-const state = { data:{}, files:{}, err:{}, manual: store.get('stockrec.manual.v2', {}), hist: store.get('stockrec.hist.v1', []), names: store.get('stockrec.names.v1', {}), learned: store.get('stockrec.learned.v1', {}), shared: {}, sharedMsg: '공유 매핑표 불러오는 중…', notes: store.get('stockrec.notes.v1', DEF_NOTES), R:null };
+const state = { data:{}, files:{}, err:{}, manual: store.get('stockrec.manual.v2', {}), smNames: store.get('stockrec.smnames.v1', {}), hist: store.get('stockrec.hist.v1', []), names: store.get('stockrec.names.v1', {}), learned: store.get('stockrec.learned.v1', {}), shared: {}, sharedMsg: '공유 매핑표 불러오는 중…', notes: store.get('stockrec.notes.v1', DEF_NOTES), R:null };
 $('exKw').value = store.get('stockrec.exclude.v1', DEF_EX);
 const nkey = r => (r.barcode || r.name + '|' + r.opt).replace(/[^0-9A-Za-z가-힣|]/g, '').toUpperCase();
 const noteOf = r => { const n = state.notes[nkey(r)]; return n && n.diff === r.diff ? n : null; };
@@ -541,6 +546,7 @@ function recompute(){
  if (!state.data.sm) { $('status').textContent = '셀메이트 파일이 기준입니다. 먼저 올려 주세요.'; state.R = null; render(); return; }
  state.R = Engine.run(state.data, { skipF: $('skipF').checked, manual: state.manual, shared: state.shared, learned: state.learned, dropLS: $('dropLS').checked, exclude: $('exKw').value.split(',') });
  if ($('learnOn').checked) { let n = 0; for (const [k, v] of Object.entries(state.R.learnedNew)) if (state.learned[k] !== v && !(state.shared[k] && state.shared[k].b === v)) { state.learned[k] = v; n++; } if (n) store.set('stockrec.learned.v1', state.learned); }
+ state.R.master.forEach(r => { state.smNames[nb(r.barcode)] = [r.name, r.opt]; }); store.set('stockrec.smnames.v1', state.smNames);
  const R = state.R, tot = { sm:0, c24:0, ku:0, w:0, gs:0 };
  R.master.forEach(r => { tot.sm += r.qty; tot.c24 += r.c24; tot.ku += r.ku; tot.w += r.w; tot.gs += r.gs; });
  for (const k in tot) $('q-' + k).textContent = state.data[k] ? fmt(tot[k]) : '—';
@@ -624,13 +630,22 @@ function delLearned(id, msg){ const from = state.learned[id]; if (from == null) 
 function undo(i){ const h = state.hist[i]; if (!h || h.undone) return; h.undone = true; applyVal(h.kind, h.id, h.from); store.set('stockrec.hist.v1', state.hist); recompute(); toast('되돌렸습니다'); }
 const nameOf = id => { const l = state.R && state.R.lines.find(x => x.id === id); return l ? l.name + ' / ' + l.opt : state.names[id] || (state.shared[id] && state.shared[id].n) || ''; };
 function smIndex(){ const m = new Map(); if (state.R) state.R.master.forEach(r => m.set(String(r.barcode).replace(/[^0-9A-Za-z]/g, '').toUpperCase(), r)); return m; }
+const nb = v => String(v).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+function smLabel(v, idx){
+ const r = idx.get(nb(v)); if (r) return { name: r.name, opt: r.opt, live: true };
+ const c = state.smNames[nb(v)]; if (c) return { name: c[0], opt: c[1], live: false };
+ return null;
+}
 function valHtml(v, idx, kind){
  if (v == null) return `<span class="op2">${kind === 'learned' ? '누적 없음' : '수동값 없음 (공유·누적·자동 적용)'}</span>`;
  if (v === '제외') return '<span class="tag x">대조 제외</span>';
  if (v === '자동') return '<span class="tag">저장 매핑 무시 · 자동 규칙</span>';
- const r = idx.get(String(v).replace(/[^0-9A-Za-z]/g, '').toUpperCase());
- return `<span class="bc">${esc(v)}</span>` + (r ? `<div class="nm">${esc(r.name)}</div><div class="op2">${esc(r.opt)}</div>` : state.R ? '<div class="tag x">⚠ 현재 셀메이트에 없는 바코드</div>' : '');
+ const L = smLabel(v, idx);
+ const miss = state.R && !(L && L.live);
+ return (L ? `<div class="nm">${esc(L.name)}</div><div class="op2">${esc(L.opt)}</div>` : '<div class="op2">상품명 정보 없음 — 셀메이트 파일을 올리면 표시됩니다</div>') +
+  (miss ? '<div class="tag x">⚠ 현재 셀메이트 파일에 없는 바코드</div>' : '') + `<div class="bc">${esc(v)}</div>`;
 }
+const shortLabel = (v, idx) => { if (v === '제외') return '대조 제외'; const L = smLabel(v, idx); return L ? L.name + ' · ' + L.opt : v; };
 function renderManage(){
  const idx = smIndex(), now = new Date();
  const tm = t => { const d = new Date(t); const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); return d.toDateString() === now.toDateString() ? '오늘 ' + hm : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm; };
@@ -658,7 +673,7 @@ function renderManage(){
  $('tMan').innerHTML = total ? `<p class="note">${fmt(total)}건${total > 300 ? ' 중 최근·우선순위 300건 표시 — 검색으로 좁혀 보세요' : ''}</p><div class="scroll"><table><thead><tr><th>출처</th><th>판매처 상품 / 옵션 · 키</th><th>연결된 셀메이트</th><th>수정</th></tr></thead><tbody>${rows.map(r =>
   `<tr class="${r.stale ? 'bad' : ''}${r.rev ? ' rev' : ''}"><td><span class="srcTag s-${r.src}">${SRC[r.src]}</span>${r.rev ? '<div class="tag r">확인 필요</div>' : ''}</td>
   <td><div class="nm">${esc(r.n || '(이름 정보 없음)')}</div><div class="bc">${esc(r.k)}</div></td>
-  <td class="chg">${valHtml(r.v, idx)}${r.under ? `<div class="op2">덮어쓴 ${esc(r.under[0])}값: ${esc(r.under[1])}</div>` : ''}</td>
+  <td class="chg">${valHtml(r.v, idx)}${r.under ? `<div class="op2" style="margin-top:4px">원래 ${esc(r.under[0])}값: ${esc(shortLabel(r.under[1], idx))}</div>` : ''}</td>
   <td><div class="mapcell"><input class="mapin manin" list="smList" placeholder="${state.R ? '다른 셀메이트 옵션 검색' : '바코드 직접 입력'}" data-id="${esc(r.k)}" aria-label="셀메이트 옵션 다시 지정">
   ${r.v !== '제외' ? `<button class="btn mini" data-ex="${esc(r.k)}">제외</button>` : ''}
   ${r.src === 'manual' ? `<button class="btn mini" data-un="${esc(r.k)}">수동 해제</button>` : ''}
@@ -672,7 +687,8 @@ function mergedEntries(){
  for (const [k, e] of Object.entries(state.shared)) out[k] = { ...e };
  for (const [k, b] of Object.entries(state.learned)) out[k] = { b, n: (out[k] && out[k].n) || names[k] || '' };
  for (const [k, b] of Object.entries(state.manual)) { if (b === '자동') { delete out[k]; continue; } out[k] = { b, n: (out[k] && out[k].n) || names[k] || state.names[k] || '' }; }
- for (const k in out) { if (!out[k].n && names[k]) out[k].n = names[k]; if (!out[k].r) delete out[k].r; }
+ for (const k in out) { if (!out[k].n && names[k]) out[k].n = names[k]; if (!out[k].r) delete out[k].r;
+  const c = out[k].b !== '제외' && state.smNames[nb(out[k].b)]; if (c) out[k].s = c[0] + ' · ' + c[1]; }
  return out;
 }
 function exportJson(){
@@ -736,7 +752,8 @@ if (typeof XLSX === 'undefined') $('status').textContent = '엑셀 읽기 라이
 $('learnOn').checked = store.get('stockrec.learnOn', true);
 recompute();
 fetch('mapping.json', { cache: 'no-store' }).then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => {
- state.shared = j.entries || {}; state.sharedMsg = `공유 매핑표 ${j.updated || ''} 기준`; recompute();
+ state.shared = j.entries || {};
+ for (const e of Object.values(state.shared)) if (e.s && e.b && !state.smNames[nb(e.b)]) { const i = e.s.lastIndexOf(' · '); state.smNames[nb(e.b)] = i > 0 ? [e.s.slice(0, i), e.s.slice(i + 3)] : [e.s, '']; } state.sharedMsg = `공유 매핑표 ${j.updated || ''} 기준`; recompute();
 }).catch(() => { state.sharedMsg = '공유 매핑표(mapping.json)를 찾지 못해 자동 규칙만 사용합니다'; recompute(); });
 }
 </script>
