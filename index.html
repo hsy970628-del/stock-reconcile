@@ -182,13 +182,11 @@ details{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}summar
   <p class="note">공유 매핑표(mapping.json)·자동 누적·수동 지정을 합친 목록입니다. 연결된 셀메이트 칸에 다른 옵션을 지정하면 수동 지정으로 덮어씁니다. 공유 매핑표 값은 파일을 직접 바꾸지 않고, 수동 지정으로 덮어쓴 뒤 mapping.json을 내려받아 올리면 팀 전체에 반영됩니다.</p>
   <div class="tools">
    <input type="search" id="qMan" placeholder="판매처 상품명·판매처 키·바코드 검색">
-   <select id="fMan" aria-label="출처"><option value="">모든 매핑</option><option value="manual">수동 지정</option><option value="learned">자동 누적</option><option value="shared">공유 매핑표</option><option value="ex">제외된 매핑</option><option value="rev">확인 필요(추정)</option><option value="stale">셀메이트에 없는 바코드</option></select>
+   <select id="fMan" aria-label="출처"><option value="">모든 매핑</option><option value="manual">수동 지정</option><option value="learned">자동 누적</option><option value="shared">공유 매핑표</option><option value="rel">해제된 매핑</option><option value="ex">제외된 매핑</option><option value="rev">확인 필요(추정)</option><option value="stale">셀메이트에 없는 바코드</option></select>
    <select id="cMan" aria-label="판매처"><option value="">모든 판매처</option><option>cafe24</option><option>컬리</option><option>W컨셉</option><option>그로잉</option></select>
   </div>
   <div class="mapbox" style="margin-top:0">
-   <p class="note" style="margin:0"><b>제외</b> — 이 판매처 상품을 대조 계산에서 아예 뺍니다. 셀메이트와 관계없는 상품(타 브랜드·사은품·부자재)에 씁니다. 재고가 있어도 합계에 들어가지 않고 미매핑 목록에도 뜨지 않습니다.<br>
-   <b>공유값 무시</b> — 공유 매핑표(mapping.json)의 연결이 틀렸을 때, 그 저장값을 쓰지 않고 자동 규칙으로 다시 찾게 합니다. 상품은 계속 대조에 포함됩니다. 올바른 옵션을 알면 "다른 셀메이트 옵션 검색"으로 바로 지정하는 편이 더 정확합니다.<br>
-   <b>수동 해제 · 누적 삭제</b> — 내가 지정한 값 또는 자동으로 쌓인 값을 지워서, 그다음 순서(공유 → 자동 규칙)로 돌아가게 합니다.</p>
+   <p class="note" style="margin:0"><b>연결이 틀렸을 때</b> — 맞는 옵션을 알면 "다른 셀메이트 옵션 검색"에서 바로 고르세요. 모르면 <b>매핑 해제</b>를 누르면 연결이 끊기고, 매핑 검토 탭의 미매핑 목록으로 돌아가 다시 지정할 수 있습니다. 잘못 누른 해제는 "해제 취소"나 최근 작업의 되돌리기로 되돌립니다.</p>
   </div>
   <div id="tMan"></div>
  </div>
@@ -390,6 +388,7 @@ const Engine = (() => {
     const st = [[maps.manual[c.id], '수동 지정', 'manual', 'manual'],
                 [maps.shared[c.id] && maps.shared[c.id].b, '공유 매핑표', maps.shared[c.id] && maps.shared[c.id].r ? 'review' : 'sure', 'shared'],
                 [maps.learned[c.id], '누적 매핑', 'sure', 'learned']];
+    if (maps.manual[c.id] === '해제') return { sm: null, how: '매핑 해제됨 — 다시 지정 필요', conf: 'review', stale: true, src: 'manual' };
     if (maps.manual[c.id] !== '자동') for (const [bc, how, conf, src] of st) { if (bc) { const r = viaMap(bc, how, conf, src); if (r) return r; } }
     const a = ruleMatch(c, M, bridgeMap, res, pickBest, one);
     if (stale) return a ? { ...a, how: stale + ' → ' + a.how, conf: 'review' } : { sm: null, how: stale, conf: 'review', stale: true };
@@ -618,7 +617,7 @@ function renderMap(){
   const m = l.sm != null ? R.master[l.sm] : null;
   return `<tr class="${l.status === 'unmapped' ? 'bad' : ''}${l.conf === 'review' ? ' rev' : ''}"><td>${CH[l.ch]}</td><td><div class="nm">${esc(l.name)}</div><div class="op2">${esc(l.opt)}</div></td><td class="n">${fmt(l.qty)}</td>
   <td>${m ? `<div class="nm">${esc(m.name)}</div><div class="op2">${esc(m.opt)}</div>` : '<span class="tag x">없음</span>'}</td><td><span class="tag${l.conf === 'review' ? ' r' : l.status === 'unmapped' ? ' x' : ''}">${esc(l.how)}</span></td>
-  <td><div class="mapcell"><input class="mapin" list="smList" placeholder="셀메이트 옵션 검색" data-id="${esc(l.id)}" aria-label="셀메이트 옵션 지정">${l.conf === 'review' ? `<button class="btn mini" data-ok="${esc(l.id)}" data-sm="${esc(l.bc || '')}">맞음</button>` : ''}<button class="btn mini" data-ex="${esc(l.id)}">제외</button>${state.manual[l.id] != null ? `<button class="btn mini" data-un="${esc(l.id)}">자동으로</button>` : ''}</div></td></tr>`; }).join('')}</tbody></table></div>`
+  <td><div class="mapcell"><input class="mapin" list="smList" placeholder="셀메이트 옵션 검색" data-id="${esc(l.id)}" aria-label="셀메이트 옵션 지정">${l.conf === 'review' && l.bc ? `<button class="btn mini" data-ok="${esc(l.id)}" data-sm="${esc(l.bc)}">맞음</button>` : ''}<button class="btn mini" data-ex="${esc(l.id)}">제외</button>${state.manual[l.id] != null ? `<button class="btn mini" data-un="${esc(l.id)}">${state.manual[l.id] === '해제' ? '해제 취소' : '수동 지정 취소'}</button>` : ''}</div></td></tr>`; }).join('')}</tbody></table></div>`
   : '<div class="empty">확인할 행이 없습니다.</div>';
  $('mapJson').value = exportJson();
 }
@@ -640,12 +639,13 @@ function valHtml(v, idx, kind){
  if (v == null) return `<span class="op2">${kind === 'learned' ? '누적 없음' : '수동값 없음 (공유·누적·자동 적용)'}</span>`;
  if (v === '제외') return '<span class="tag x">대조 제외</span>';
  if (v === '자동') return '<span class="tag">저장 매핑 무시 · 자동 규칙</span>';
+ if (v === '해제') return '<span class="tag r">매핑 해제됨</span><div class="op2">매핑 검토 탭(미매핑)에서 다시 지정하세요</div>';
  const L = smLabel(v, idx);
  const miss = state.R && !(L && L.live);
  return (L ? `<div class="nm">${esc(L.name)}</div><div class="op2">${esc(L.opt)}</div>` : '<div class="op2">상품명 정보 없음 — 셀메이트 파일을 올리면 표시됩니다</div>') +
   (miss ? '<div class="tag x">⚠ 현재 셀메이트 파일에 없는 바코드</div>' : '') + `<div class="bc">${esc(v)}</div>`;
 }
-const shortLabel = (v, idx) => { if (v === '제외') return '대조 제외'; const L = smLabel(v, idx); return L ? L.name + ' · ' + L.opt : v; };
+const shortLabel = (v, idx) => { if (v === '제외') return '대조 제외'; if (v === '해제') return '매핑 해제'; const L = smLabel(v, idx); return L ? L.name + ' · ' + L.opt : v; };
 function renderManage(){
  const idx = smIndex(), now = new Date();
  const tm = t => { const d = new Date(t); const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); return d.toDateString() === now.toDateString() ? '오늘 ' + hm : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm; };
@@ -662,10 +662,10 @@ function renderManage(){
   const src = m != null ? 'manual' : l != null ? 'learned' : 'shared';
   const v = m != null ? m : l != null ? l : s.b;
   const under = m != null ? (l != null ? ['누적', l] : s ? ['공유', s.b] : null) : (l != null && s ? ['공유', s.b] : null);
-  const stale = v !== '제외' && v !== '자동' && state.R && !idx.has(String(v).replace(/[^0-9A-Za-z]/g, '').toUpperCase());
+  const stale = !['제외','자동','해제'].includes(v) && state.R && !idx.has(String(v).replace(/[^0-9A-Za-z]/g, '').toUpperCase());
   return { k, ch: k.slice(0, k.indexOf('|')), src, v, under, rev: src === 'shared' && s && s.r, stale, t: last[k] || 0, n: nameOf(k) };
  }).filter(r => (!ch || r.ch === ch) && (!q || (r.k + ' ' + r.n + ' ' + r.v).toUpperCase().includes(q)) &&
-  (!f || (f === 'ex' ? r.v === '제외' : f === 'rev' ? r.rev : f === 'stale' ? r.stale : r.src === f)));
+  (!f || (f === 'ex' ? r.v === '제외' : f === 'rel' ? r.v === '해제' : f === 'rev' ? r.rev : f === 'stale' ? r.stale : r.src === f)));
  rows.sort((a, b) => b.t - a.t || ({ manual: 0, learned: 1, shared: 2 }[a.src] - { manual: 0, learned: 1, shared: 2 }[b.src]) || a.k.localeCompare(b.k));
  $('cMg').textContent = fmt(keys.size);
  const total = rows.length; rows = rows.slice(0, 300);
@@ -675,18 +675,15 @@ function renderManage(){
   <td><div class="nm">${esc(r.n || '(이름 정보 없음)')}</div><div class="bc">${esc(r.k)}</div></td>
   <td class="chg">${valHtml(r.v, idx)}${r.under ? `<div class="op2" style="margin-top:4px">원래 ${esc(r.under[0])}값: ${esc(shortLabel(r.under[1], idx))}</div>` : ''}</td>
   <td><div class="mapcell"><input class="mapin manin" list="smList" placeholder="${state.R ? '다른 셀메이트 옵션 검색' : '바코드 직접 입력'}" data-id="${esc(r.k)}" aria-label="셀메이트 옵션 다시 지정">
-  ${r.v !== '제외' ? `<button class="btn mini" data-ex="${esc(r.k)}">제외</button>` : ''}
-  ${r.src === 'manual' ? `<button class="btn mini" data-un="${esc(r.k)}">수동 해제</button>` : ''}
-  ${r.src === 'learned' ? `<button class="btn mini" data-dl="${esc(r.k)}">누적 삭제</button>` : ''}
-  ${r.src === 'shared' && r.rev ? `<button class="btn mini" data-ok="${esc(r.k)}" data-sm="${esc(r.v)}">맞음</button>` : ''}
-  ${r.src === 'shared' ? `<button class="btn mini" data-auto="${esc(r.k)}">공유값 무시</button>` : ''}</div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">조건에 맞는 매핑이 없습니다.</div>';
+  ${r.v === '해제' ? `<a class="btn mini" href="#mapping" style="display:inline-flex;align-items:center;text-decoration:none">매핑 검토로</a><button class="btn mini" data-un="${esc(r.k)}">해제 취소</button>`
+   : `${r.src === 'shared' && r.rev ? `<button class="btn mini" data-ok="${esc(r.k)}" data-sm="${esc(r.v)}">맞음</button>` : ''}<button class="btn mini" data-rel="${esc(r.k)}">매핑 해제</button>`}</div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">조건에 맞는 매핑이 없습니다.</div>';
 }
 function mergedEntries(){
  const names = {}; (state.R ? state.R.lines : []).forEach(l => names[l.id] = l.name + ' / ' + l.opt);
  const out = {};
  for (const [k, e] of Object.entries(state.shared)) out[k] = { ...e };
  for (const [k, b] of Object.entries(state.learned)) out[k] = { b, n: (out[k] && out[k].n) || names[k] || '' };
- for (const [k, b] of Object.entries(state.manual)) { if (b === '자동') { delete out[k]; continue; } out[k] = { b, n: (out[k] && out[k].n) || names[k] || state.names[k] || '' }; }
+ for (const [k, b] of Object.entries(state.manual)) { if (b === '자동' || b === '해제') { delete out[k]; continue; } out[k] = { b, n: (out[k] && out[k].n) || names[k] || state.names[k] || '' }; }
  for (const k in out) { if (!out[k].n && names[k]) out[k].n = names[k]; if (!out[k].r) delete out[k].r;
   const c = out[k].b !== '제외' && state.smNames[nb(out[k].b)]; if (c) out[k].s = c[0] + ' · ' + c[1]; }
  return out;
@@ -710,6 +707,7 @@ document.addEventListener('click', e => { const b = e.target.closest('button'); 
  else if (b.dataset.un) setManual(b.dataset.un, null, '수동 지정을 해제했습니다');
  else if (b.dataset.dl) delLearned(b.dataset.dl, '누적 매핑을 삭제했습니다');
  else if (b.dataset.auto) setManual(b.dataset.auto, '자동', '공유값 대신 자동 규칙을 씁니다');
+ else if (b.dataset.rel) setManual(b.dataset.rel, '해제', '매핑을 해제했습니다 — 매핑 검토 탭에서 다시 지정하세요');
  else if (b.dataset.copy) copyTable(b.dataset.copy);
  else if (b.id === 'resetAll') { if (b.dataset.sure) { delete b.dataset.sure; b.textContent = '전체 초기화'; resetAll(); } else { b.dataset.sure = 1; b.textContent = '한 번 더 누르면 초기화'; setTimeout(() => { delete b.dataset.sure; b.textContent = '전체 초기화'; }, 4000); } }
  else if (b.id === 'mapCopy') copyText($('mapJson').value);
