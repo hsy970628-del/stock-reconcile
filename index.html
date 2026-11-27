@@ -85,6 +85,8 @@ details{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}summar
 .toast.on{opacity:1}.toast.undo{pointer-events:auto;display:flex;gap:12px;align-items:center}
 .toast button{font:600 14px "Noto Sans KR";background:transparent;color:inherit;border:1px solid currentColor;border-radius:8px;min-height:34px;padding:0 10px;cursor:pointer}
 .srcTag{font-size:12px;border-radius:6px;padding:1px 7px;white-space:nowrap}.s-manual{background:#dbeafe;color:#1e40af}.s-learned{background:var(--mist)}.s-shared{background:light-dark(#eef0f2,#1c2a23)}
+.grp td{background:var(--mist)!important;border-top:2px solid var(--line);padding-top:12px}.grp .gname{font-weight:700;font-size:15px}.grp .gsum{font-size:13px;color:var(--mute);margin-inline-start:10px}
+.gp{color:var(--red);font-weight:600}.gm{color:var(--red);font-weight:600}
 .hist-undone td{opacity:.5}.chg{font-size:13px}.chg s{color:var(--mute)}
 .view{display:none}.view.on{display:block}
 @media(max-width:980px){.terms{grid-template-columns:repeat(2,minmax(0,1fr))}.terms>.op{display:none}.slot.base{grid-column:1/-1}.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.k:nth-child(4){border:0;padding-inline-start:0}}
@@ -134,8 +136,10 @@ details{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}summar
 
  <div class="view" id="v-mismatch">
   <div class="tools">
-   <input type="search" id="qMis" placeholder="불일치 옵션 검색">
+   <input type="search" id="qMis" placeholder="상품명·옵션·바코드 검색">
+   <select id="dMis" aria-label="차이 방향"><option value="">차이 전체 (+/−)</option><option value="plus">+ 셀메이트가 많음 (판매처 부족)</option><option value="minus">− 판매처가 많음 (오버셀 위험)</option></select>
    <select id="fMis" aria-label="원인 필터"></select>
+   <select id="sMis" aria-label="보기 방식"><option value="grp">상품별로 묶기 · 차이 큰 상품 순</option><option value="grpName">상품별로 묶기 · 상품명 순</option><option value="opt">옵션별 · 차이 큰 순</option></select>
    <button class="btn" data-copy="mis">불일치 목록 복사</button>
   </div>
   <p class="note">차이 = 셀메이트 가용재고 − 판매처 합계. 차이가 클수록 위에 놓입니다. 적색 행이 등식이 맞지 않는 옵션입니다.</p>
@@ -596,9 +600,12 @@ function render(){
  const causes = [...new Set(bad.map(r => cause(r)[0]))];
  const fm = $('fMis'), cur = fm.value; fm.innerHTML = '<option value="">모든 원인</option>' + causes.map(c => `<option${c === cur ? ' selected' : ''}>${esc(c)}</option>`).join('');
  const qm = $('qMis').value.trim().toUpperCase();
- const mis = bad.filter(r => (!fm.value || cause(r)[0] === fm.value) && (!qm || (r.name + ' ' + r.opt + ' ' + r.barcode).toUpperCase().includes(qm))).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
- $('tMis').innerHTML = mis.length ? `<div class="scroll"><table><thead><tr>${HEAD}<th>원인 → 조치</th><th>매핑 근거</th></tr></thead><tbody>${mis.map(r => { const [c, a] = cause(r);
-  return `<tr class="bad${r.review ? ' rev' : ''}">${cells(r)}<td class="cause"><b>${esc(c)}</b><span>${esc(a)}</span><input class="noteIn" placeholder="사유를 알면 적어 두기" data-k="${esc(nkey(r))}" data-d="${r.diff}" aria-label="사유 메모"></td><td>${linkTags(r)}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">확인할 불일치 옵션이 없습니다.</div>';
+ const ML = misList(bad);
+ const optRow = r => { const [c, a] = cause(r);
+  return `<tr class="bad${r.review ? ' rev' : ''}">${cells(r)}<td class="cause"><b>${esc(c)}</b><span>${esc(a)}</span><input class="noteIn" placeholder="사유를 알면 적어 두기" data-k="${esc(nkey(r))}" data-d="${r.diff}" aria-label="사유 메모"></td><td>${linkTags(r)}</td></tr>`; };
+ const sg = n => (n > 0 ? '+' : '') + fmt(n);
+ const body = ML.groups ? ML.groups.map(g => `<tr class="grp"><td colspan="10"><span class="gname">${esc(g.name)}</span><span class="gsum">옵션 ${g.rows.length}개 불일치${g.plus ? ` · <span class="gp">+${fmt(g.plus)}</span>` : ''}${g.minus ? ` · <span class="gm">${fmt(g.minus)}</span>` : ''}</span></td></tr>` + g.rows.map(optRow).join('')).join('') : ML.rows.map(optRow).join('');
+ $('tMis').innerHTML = ML.rows.length ? `<p class="note">${fmt(ML.rows.length)}개 옵션${ML.groups ? ` · ${fmt(ML.groups.length)}개 상품` : ''} · + 합계 ${sg(ML.rows.filter(r => r.diff > 0).reduce((a, r) => a + r.diff, 0))} / − 합계 ${fmt(ML.rows.filter(r => r.diff < 0).reduce((a, r) => a + r.diff, 0))}</p><div class="scroll"><table><thead><tr>${HEAD}<th>원인 → 조치</th><th>매핑 근거</th></tr></thead><tbody>${body}</tbody></table></div>` : '<div class="empty">조건에 맞는 불일치 옵션이 없습니다.</div>';
  $('tKnown').innerHTML = known.length ? `<div class="scroll"><table><thead><tr>${HEAD}<th>사유 (지우면 다시 불일치로)</th></tr></thead><tbody>${known.map(r =>
   `<tr class="known">${cells(r)}<td class="cause"><input class="noteIn" value="${esc(noteOf(r).note)}" data-k="${esc(nkey(r))}" data-d="${r.diff}" aria-label="사유 메모"></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">사유를 적어 둔 불일치가 없습니다.</div>';
  $('tOrphan').innerHTML = orphan.length ? `<div class="scroll"><table><thead><tr><th>판매처</th><th>상품명</th><th>옵션</th><th class="n">재고</th><th>상태</th></tr></thead><tbody>${orphan.map(l =>
@@ -758,14 +765,26 @@ function resetAll(){
  recompute(); toast('업로드 파일과 결과를 초기화했습니다');
 }
 function copyText(t){ (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('복사했습니다 — 엑셀에 붙여넣으세요'), () => { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); toast('복사했습니다'); } catch(e) { toast('복사가 막혔습니다'); } a.remove(); }); }
+const baseName = n => String(n).replace(/^\s*(\[[^\]]*\]\s*)+/, '').replace(/\s*\([^()]*\)\s*$/, '').trim();
+function misList(bad){
+ const fm = $('fMis').value, qm = $('qMis').value.trim().toUpperCase(), d = $('dMis').value, mode = $('sMis').value;
+ const rows = bad.filter(r => (!fm || cause(r)[0] === fm) && (!d || (d === 'plus' ? r.diff > 0 : r.diff < 0)) && (!qm || (r.name + ' ' + r.opt + ' ' + r.barcode).toUpperCase().includes(qm)));
+ if (mode === 'opt') return { rows: rows.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)), groups: null };
+ const m = new Map();
+ rows.forEach(r => { const k = baseName(r.name).toUpperCase(); if (!m.has(k)) m.set(k, { name: baseName(r.name), rows: [], plus: 0, minus: 0 }); const g = m.get(k); g.rows.push(r); if (r.diff > 0) g.plus += r.diff; else g.minus += r.diff; });
+ const groups = [...m.values()];
+ groups.forEach(g => g.rows.sort((a, b) => a.name.localeCompare(b.name) || a.opt.localeCompare(b.opt, 'ko', { numeric: true })));
+ groups.sort(mode === 'grpName' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => (b.plus - b.minus) - (a.plus - a.minus) || a.name.localeCompare(b.name));
+ return { rows: groups.flatMap(g => g.rows), groups };
+}
 function copyTable(which){
  const R = state.R; if (!R) return;
- const rows = which === 'mis' ? R.master.filter(r => r.diff !== 0 && !noteOf(r)).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)) : rowsAll();
- const head = ['상품명','옵션명','바코드','셀메이트 가용','cafe24','컬리','W컨셉','그로잉 본사','판매처 합계','차이'].concat(which === 'mis' ? ['원인','조치'] : ['판정']);
- const body = rows.map(r => [r.name, r.opt, r.barcode, r.qty, r.c24, r.ku, r.w, r.gs, r.sum, r.diff].concat(which === 'mis' ? cause(r) : [r.diff ? '불일치' : '일치']).map(v => String(v).replace(/\t|\n/g, ' ')).join('\t'));
+ const rows = which === 'mis' ? misList(R.master.filter(r => r.diff !== 0 && !noteOf(r))).rows : rowsAll();
+ const head = ['상품(묶음)','상품명','옵션명','바코드','셀메이트 가용','cafe24','컬리','W컨셉','그로잉 본사','판매처 합계','차이'].concat(which === 'mis' ? ['원인','조치'] : ['판정']);
+ const body = rows.map(r => [baseName(r.name), r.name, r.opt, r.barcode, r.qty, r.c24, r.ku, r.w, r.gs, r.sum, r.diff].concat(which === 'mis' ? cause(r) : [r.diff ? '불일치' : '일치']).map(v => String(v).replace(/\t|\n/g, ' ')).join('\t'));
  copyText([head.join('\t')].concat(body).join('\n'));
 }
-['qAll','fAll','qMis','fMis'].forEach(id => $(id).addEventListener('input', render));
+['qAll','fAll','qMis','fMis','dMis','sMis'].forEach(id => $(id).addEventListener('input', render));
 ['fMap','cMapCh','qMap'].forEach(id => $(id).addEventListener('input', renderMap));
 ['fMan','cMan','qMan','qEx','cEx'].forEach(id => $(id).addEventListener('input', renderManage));
 
