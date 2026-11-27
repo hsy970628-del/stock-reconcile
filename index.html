@@ -87,6 +87,7 @@ details{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}summar
 .srcTag{font-size:12px;border-radius:6px;padding:1px 7px;white-space:nowrap}.s-manual{background:#dbeafe;color:#1e40af}.s-learned{background:var(--mist)}.s-shared{background:light-dark(#eef0f2,#1c2a23)}
 .grp td{background:var(--mist)!important;border-top:2px solid var(--line);padding-top:12px}.grp .gname{font-weight:700;font-size:15px}.grp .gsum{font-size:13px;color:var(--mute);margin-inline-start:10px}
 .gp{color:var(--red);font-weight:600}.gm{color:var(--red);font-weight:600}
+tr.ign td{opacity:.55}tr.ign td:last-child{opacity:1}.ignb{margin-top:6px}
 .hist-undone td{opacity:.5}.chg{font-size:13px}.chg s{color:var(--mute)}
 .view{display:none}.view.on{display:block}
 @media(max-width:980px){.terms{grid-template-columns:repeat(2,minmax(0,1fr))}.terms>.op{display:none}.slot.base{grid-column:1/-1}.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.k:nth-child(4){border:0;padding-inline-start:0}}
@@ -144,6 +145,9 @@ details{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}summar
   </div>
   <p class="note">차이 = 셀메이트 가용재고 − 판매처 합계. 차이가 클수록 위에 놓입니다. 적색 행이 등식이 맞지 않는 옵션입니다.</p>
   <div id="tMis"></div>
+  <h2>안 봐도 됨 목록</h2>
+  <p class="note">"안 봐도 됨"을 누른 옵션은 불일치 건수·목록에서 빠지고 여기에 모입니다. 차이가 바뀌어도 계속 숨겨지니, 다시 확인하려면 <b>복구</b>를 누르세요.</p>
+  <div id="tIgn"></div>
   <h2>사유 확인된 불일치</h2>
   <p class="note">사유를 적어 둔 옵션은 불일치 건수에서 빠지고 여기에 모입니다. 다음 파일에서 차이 수량이 달라지면 다시 위 목록으로 올라갑니다.</p>
   <div id="tKnown"></div>
@@ -497,7 +501,7 @@ const SLOTS = [
 const store = { get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } }, set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} } };
 const DEF_EX = '쇼핑백, 부자재, ROPE BELT, 로프 벨트';
 const DEF_NOTES = {};
-const state = { data:{}, files:{}, err:{}, manual: store.get('stockrec.manual.v2', {}), smNames: store.get('stockrec.smnames.v1', {}), hist: store.get('stockrec.hist.v1', []), names: store.get('stockrec.names.v1', {}), learned: store.get('stockrec.learned.v1', {}), shared: {}, sharedMsg: '공유 매핑표 불러오는 중…', notes: store.get('stockrec.notes.v1', DEF_NOTES), R:null };
+const state = { data:{}, files:{}, err:{}, manual: store.get('stockrec.manual.v2', {}), smNames: store.get('stockrec.smnames.v1', {}), hist: store.get('stockrec.hist.v1', []), names: store.get('stockrec.names.v1', {}), learned: store.get('stockrec.learned.v1', {}), shared: {}, sharedMsg: '공유 매핑표 불러오는 중…', notes: store.get('stockrec.notes.v1', DEF_NOTES), ignore: store.get('stockrec.ignore.v1', {}), R:null };
 $('exKw').value = store.get('stockrec.exclude.v1', DEF_EX);
 const nkey = r => (r.barcode || r.name + '|' + r.opt).replace(/[^0-9A-Za-z가-힣|]/g, '').toUpperCase();
 const noteOf = r => { const n = state.notes[nkey(r)]; return n && n.diff === r.diff ? n : null; };
@@ -505,7 +509,8 @@ const noteOf = r => { const n = state.notes[nkey(r)]; return n && n.diff === r.d
 $('terms').innerHTML = SLOTS.map((s, i) => `<label class="slot${i ? '' : ' base'}" id="slot-${s.k}"><input type="file" accept=".csv,.xlsx,.xls" data-k="${s.k}" aria-label="${s.t} 파일 올리기"><div class="t">${s.t}</div><div class="h">${s.h}</div><div class="q num" id="q-${s.k}">—</div><div class="f" id="f-${s.k}">클릭하거나 파일을 끌어 놓기</div></label><div class="op">${i ? '+' : '='}</div>`).join('');
 
 function toast(m, undo){ const t = $('toast'); t.textContent = m; t.classList.toggle('undo', undo != null);
- if (undo != null) { const b = document.createElement('button'); b.textContent = '되돌리기'; b.dataset.undo = undo; t.appendChild(b); }
+ if (undo != null) { const b = document.createElement('button'); b.textContent = '되돌리기';
+  if (typeof undo === 'object') { b.dataset.tact = undo.a; b.dataset.tk = undo.k; toast.payload = undo.v; } else b.dataset.undo = undo; t.appendChild(b); }
  t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on', 'undo'), undo != null ? 6000 : 2200); }
 
 async function readRows(file){
@@ -566,6 +571,8 @@ function recompute(){
  render();
 }
 
+const isIgn = r => !!state.ignore[nkey(r)];
+function setIgnore(k, v, msg, undoable){ if (v) state.ignore[k] = v; else delete state.ignore[k]; store.set('stockrec.ignore.v1', state.ignore); render(); if (msg) toast(msg, undoable ? { a: v ? 'unign' : 'reign', k, v: v || null } : null); }
 function rowsAll(){
  const R = state.R; if (!R) return [];
  const q = $('qAll').value.trim().toUpperCase(), f = $('fAll').value, hz = $('hideZero').checked;
@@ -582,30 +589,33 @@ function render(){
  const views = ['tAll','tMis','tOrphan','tMap'];
  if (!R) { views.forEach(v => $(v).innerHTML = '<div class="empty">셀메이트 재고 파일을 올리면 대조 결과가 여기에 나타납니다.</div>'); $('kpis').innerHTML = ''; renderManage(); return; }
  const allBad = R.master.filter(r => r.diff !== 0);
- const known = allBad.filter(noteOf), bad = allBad.filter(r => !noteOf(r));
+ const ign = allBad.filter(isIgn), known = allBad.filter(r => !isIgn(r) && noteOf(r)), bad = allBad.filter(r => !isIgn(r) && !noteOf(r));
  const orphan = R.lines.filter(l => l.status === 'unmapped' && l.qty !== 0);
  const todo = R.lines.filter(l => l.conf === 'review' || l.status === 'unmapped');
- const ok = R.master.length - bad.length;
+ const ok = R.master.length - allBad.length;
  $('kpis').innerHTML = [
   [fmt(bad.length), '불일치 옵션', 'hot'], [fmt(bad.reduce((a, r) => a + Math.abs(r.diff), 0)), '불일치 수량 합 (절대값)', ''],
-  [fmt(ok - known.length), `일치 옵션 / 전체 ${fmt(R.master.length)}${known.length ? ` · 사유 확인 ${fmt(known.length)}` : ''}`, ''], [fmt(orphan.length), '셀메이트 미연결 판매처 재고 행', orphan.length ? 'hot' : ''],
+  [fmt(ok), `일치 옵션 / 전체 ${fmt(R.master.length)}${known.length ? ` · 사유 확인 ${fmt(known.length)}` : ''}${ign.length ? ` · 안 봐도 됨 ${fmt(ign.length)}` : ''}`, ''], [fmt(orphan.length), '셀메이트 미연결 판매처 재고 행', orphan.length ? 'hot' : ''],
   [fmt(todo.length), '매핑 확인 필요 행', '']
  ].map(([b, s, c]) => `<div class="k ${c}"><b>${b}</b><span>${s}</span></div>`).join('');
  $('cAll').textContent = fmt(R.master.length); $('cMis').textContent = fmt(bad.length); $('cMap').textContent = fmt(todo.length);
 
  const ra = rowsAll();
  $('tAll').innerHTML = ra.length ? `<div class="scroll"><table><thead><tr>${HEAD}<th>매핑 근거</th></tr></thead><tbody>${ra.map(r =>
-  `<tr class="${r.diff !== 0 ? (noteOf(r) ? 'known' : 'bad') : ''}${r.review ? ' rev' : ''}">${cells(r)}<td>${noteOf(r) ? `<span class="tag r">사유: ${esc(noteOf(r).note)}</span>` : ''}${linkTags(r)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">조건에 맞는 옵션이 없습니다.</div>';
+  `<tr class="${r.diff !== 0 ? (isIgn(r) ? 'ign' : noteOf(r) ? 'known' : 'bad') : ''}${r.review ? ' rev' : ''}">${cells(r)}<td>${isIgn(r) ? '<span class="tag">안 봐도 됨</span>' : noteOf(r) ? `<span class="tag r">사유: ${esc(noteOf(r).note)}</span>` : ''}${linkTags(r)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">조건에 맞는 옵션이 없습니다.</div>';
 
  const causes = [...new Set(bad.map(r => cause(r)[0]))];
  const fm = $('fMis'), cur = fm.value; fm.innerHTML = '<option value="">모든 원인</option>' + causes.map(c => `<option${c === cur ? ' selected' : ''}>${esc(c)}</option>`).join('');
  const qm = $('qMis').value.trim().toUpperCase();
  const ML = misList(bad);
  const optRow = r => { const [c, a] = cause(r);
-  return `<tr class="bad${r.review ? ' rev' : ''}">${cells(r)}<td class="cause"><b>${esc(c)}</b><span>${esc(a)}</span><input class="noteIn" placeholder="사유를 알면 적어 두기" data-k="${esc(nkey(r))}" data-d="${r.diff}" aria-label="사유 메모"></td><td>${linkTags(r)}</td></tr>`; };
+  return `<tr class="bad${r.review ? ' rev' : ''}">${cells(r)}<td class="cause"><b>${esc(c)}</b><span>${esc(a)}</span><input class="noteIn" placeholder="사유를 알면 적어 두기" data-k="${esc(nkey(r))}" data-d="${r.diff}" aria-label="사유 메모"><button class="btn mini ignb" data-ign="${esc(nkey(r))}" data-r="${r.i}">안 봐도 됨</button></td><td>${linkTags(r)}</td></tr>`; };
  const sg = n => (n > 0 ? '+' : '') + fmt(n);
  const body = ML.groups ? ML.groups.map(g => `<tr class="grp"><td colspan="10"><span class="gname">${esc(g.name)}</span><span class="gsum">옵션 ${g.rows.length}개 불일치${g.plus ? ` · <span class="gp">+${fmt(g.plus)}</span>` : ''}${g.minus ? ` · <span class="gm">${fmt(g.minus)}</span>` : ''}</span></td></tr>` + g.rows.map(optRow).join('')).join('') : ML.rows.map(optRow).join('');
  $('tMis').innerHTML = ML.rows.length ? `<p class="note">${fmt(ML.rows.length)}개 옵션${ML.groups ? ` · ${fmt(ML.groups.length)}개 상품` : ''} · + 합계 ${sg(ML.rows.filter(r => r.diff > 0).reduce((a, r) => a + r.diff, 0))} / − 합계 ${fmt(ML.rows.filter(r => r.diff < 0).reduce((a, r) => a + r.diff, 0))}</p><div class="scroll"><table><thead><tr>${HEAD}<th>원인 → 조치</th><th>매핑 근거</th></tr></thead><tbody>${body}</tbody></table></div>` : '<div class="empty">조건에 맞는 불일치 옵션이 없습니다.</div>';
+ $('tIgn').innerHTML = ign.length ? `<div class="scroll"><table><thead><tr>${HEAD}<th>숨긴 날 · 당시 차이</th><th></th></tr></thead><tbody>${ign.map(r => { const g = state.ignore[nkey(r)];
+  return `<tr class="ign">${cells(r)}<td class="op2">${esc(new Date(g.t).toLocaleDateString('ko-KR'))} · ${g.diff > 0 ? '+' : ''}${fmt(g.diff)}</td><td><button class="btn mini" data-unign="${esc(nkey(r))}">복구</button></td></tr>`; }).join('')}</tbody></table></div>`
+  : '<div class="empty">숨긴 불일치가 없습니다.</div>';
  $('tKnown').innerHTML = known.length ? `<div class="scroll"><table><thead><tr>${HEAD}<th>사유 (지우면 다시 불일치로)</th></tr></thead><tbody>${known.map(r =>
   `<tr class="known">${cells(r)}<td class="cause"><input class="noteIn" value="${esc(noteOf(r).note)}" data-k="${esc(nkey(r))}" data-d="${r.diff}" aria-label="사유 메모"></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">사유를 적어 둔 불일치가 없습니다.</div>';
  $('tOrphan').innerHTML = orphan.length ? `<div class="scroll"><table><thead><tr><th>판매처</th><th>상품명</th><th>옵션</th><th class="n">재고</th><th>상태</th></tr></thead><tbody>${orphan.map(l =>
@@ -738,7 +748,11 @@ function download(name, text){
 document.addEventListener('change', e => { if (e.target.matches('.mapin')) { const v = e.target.value.trim(), m = /^(.+?) \| /.exec(v); const bc = m ? m[1] : /^[A-Za-z0-9][A-Za-z0-9-]{4,}$/.test(v) ? v : ''; if (bc) { const id = e.target.dataset.id; setTimeout(() => setManual(id, bc, '바코드 기준으로 저장했습니다'), 0); } }
  if (e.target.id === 'learnOn') { store.set('stockrec.learnOn', e.target.checked); recompute(); } });
 document.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return;
- if (b.dataset.undo != null) { const i = +b.dataset.undo; $('toast').classList.remove('on', 'undo'); undo(i); }
+ if (b.dataset.ign) { const r = state.R.master[+b.dataset.r]; setIgnore(b.dataset.ign, { t: Date.now(), diff: r.diff, n: r.name + ' · ' + r.opt }, '안 봐도 됨으로 숨겼습니다', true); }
+ else if (b.dataset.unign) { const prev = state.ignore[b.dataset.unign]; setIgnore(b.dataset.unign, null, '불일치 목록으로 복구했습니다'); toast('불일치 목록으로 복구했습니다', { a: 'reign', k: b.dataset.unign, v: prev }); }
+ else if (b.dataset.tact) { $('toast').classList.remove('on', 'undo'); const k = b.dataset.tk;
+  if (b.dataset.tact === 'unign') setIgnore(k, null, '되돌렸습니다'); else setIgnore(k, toast.payload, '되돌렸습니다'); }
+ else if (b.dataset.undo != null) { const i = +b.dataset.undo; $('toast').classList.remove('on', 'undo'); undo(i); }
  else if (b.dataset.ok) { if (b.dataset.sm) setManual(b.dataset.ok, b.dataset.sm, '매핑을 확정했습니다'); }
  else if (b.dataset.ex) setManual(b.dataset.ex, '제외', '대조에서 제외했습니다');
  else if (b.dataset.un) setManual(b.dataset.un, null, '수동 지정을 해제했습니다');
@@ -779,7 +793,7 @@ function misList(bad){
 }
 function copyTable(which){
  const R = state.R; if (!R) return;
- const rows = which === 'mis' ? misList(R.master.filter(r => r.diff !== 0 && !noteOf(r))).rows : rowsAll();
+ const rows = which === 'mis' ? misList(R.master.filter(r => r.diff !== 0 && !noteOf(r) && !isIgn(r))).rows : rowsAll();
  const head = ['상품(묶음)','상품명','옵션명','바코드','셀메이트 가용','cafe24','컬리','W컨셉','그로잉 본사','판매처 합계','차이'].concat(which === 'mis' ? ['원인','조치'] : ['판정']);
  const body = rows.map(r => [baseName(r.name), r.name, r.opt, r.barcode, r.qty, r.c24, r.ku, r.w, r.gs, r.sum, r.diff].concat(which === 'mis' ? cause(r) : [r.diff ? '불일치' : '일치']).map(v => String(v).replace(/\t|\n/g, ' ')).join('\t'));
  copyText([head.join('\t')].concat(body).join('\n'));
