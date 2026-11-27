@@ -82,7 +82,10 @@ h2{font:600 22px/1.2 "Space Grotesk","Noto Sans KR";margin:28px 0 4px}
 textarea{width:100%;min-height:120px;font:13px "Space Grotesk",monospace;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card);color:var(--ink)}
 details{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}summary{cursor:pointer;font-weight:500;min-height:32px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
-.toast.on{opacity:1}
+.toast.on{opacity:1}.toast.undo{pointer-events:auto;display:flex;gap:12px;align-items:center}
+.toast button{font:600 14px "Noto Sans KR";background:transparent;color:inherit;border:1px solid currentColor;border-radius:8px;min-height:34px;padding:0 10px;cursor:pointer}
+.srcTag{font-size:12px;border-radius:6px;padding:1px 7px;white-space:nowrap}.s-manual{background:#dbeafe;color:#1e40af}.s-learned{background:var(--mist)}.s-shared{background:light-dark(#eef0f2,#1c2a23)}
+.hist-undone td{opacity:.5}.chg{font-size:13px}.chg s{color:var(--mute)}
 .view{display:none}.view.on{display:block}
 @media(max-width:980px){.terms{grid-template-columns:repeat(2,minmax(0,1fr))}.terms>.op{display:none}.slot.base{grid-column:1/-1}.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.k:nth-child(4){border:0;padding-inline-start:0}}
 @media(max-width:600px){.terms{grid-template-columns:minmax(0,1fr)}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.k{border:0!important;padding-inline-start:0}table{font-size:13px}}
@@ -116,6 +119,7 @@ details{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}summar
  <a href="#all" data-v="all">전체 대조표<em id="cAll">0</em></a>
  <a href="#mismatch" data-v="mismatch">불일치 재고<em id="cMis">0</em></a>
  <a href="#mapping" data-v="mapping">매핑 검토<em id="cMap">0</em></a>
+ <a href="#manage" data-v="manage">매핑 관리<em id="cMg">0</em></a>
 </nav>
 
 <main class="wrap" style="padding:0 max(4vw,16px) 60px">
@@ -168,6 +172,20 @@ details{margin-top:24px;border-top:1px solid var(--line);padding-top:12px}summar
    <textarea id="mapJson" spellcheck="false"></textarea>
    <div class="tools"><button class="btn" id="mapCopy">복사</button><button class="btn" id="mapLoad">붙여넣은 내용 불러오기</button><button class="btn" id="learnClear">자동 누적 비우기</button><button class="btn" id="mapClear">수동 매핑 전체 초기화</button></div>
   </details>
+ </div>
+
+ <div class="view" id="v-manage">
+  <h2 style="margin-top:18px">최근 작업</h2>
+  <p class="note">매핑 검토·매핑 관리에서 누른 작업이 시간순으로 남습니다. 잘못 누른 작업은 되돌리기를 누르면 그 전 상태로 돌아갑니다.</p>
+  <div id="tHist"></div>
+  <h2>저장된 매핑 전체</h2>
+  <p class="note">공유 매핑표(mapping.json)·자동 누적·수동 지정을 합친 목록입니다. 연결된 셀메이트 칸에 다른 옵션을 지정하면 수동 지정으로 덮어씁니다. 공유 매핑표 값은 파일을 직접 바꾸지 않고, 수동 지정으로 덮어쓴 뒤 mapping.json을 내려받아 올리면 팀 전체에 반영됩니다.</p>
+  <div class="tools">
+   <input type="search" id="qMan" placeholder="판매처 상품명·판매처 키·바코드 검색">
+   <select id="fMan" aria-label="출처"><option value="">모든 매핑</option><option value="manual">수동 지정</option><option value="learned">자동 누적</option><option value="shared">공유 매핑표</option><option value="ex">제외된 매핑</option><option value="rev">확인 필요(추정)</option><option value="stale">셀메이트에 없는 바코드</option></select>
+   <select id="cMan" aria-label="판매처"><option value="">모든 판매처</option><option>cafe24</option><option>컬리</option><option>W컨셉</option><option>그로잉</option></select>
+  </div>
+  <div id="tMan"></div>
  </div>
 </main>
 <div class="toast" id="toast" role="status"></div>
@@ -367,7 +385,7 @@ const Engine = (() => {
     const st = [[maps.manual[c.id], '수동 지정', 'manual', 'manual'],
                 [maps.shared[c.id] && maps.shared[c.id].b, '공유 매핑표', maps.shared[c.id] && maps.shared[c.id].r ? 'review' : 'sure', 'shared'],
                 [maps.learned[c.id], '누적 매핑', 'sure', 'learned']];
-    for (const [bc, how, conf, src] of st) { if (bc) { const r = viaMap(bc, how, conf, src); if (r) return r; } }
+    if (maps.manual[c.id] !== '자동') for (const [bc, how, conf, src] of st) { if (bc) { const r = viaMap(bc, how, conf, src); if (r) return r; } }
     const a = ruleMatch(c, M, bridgeMap, res, pickBest, one);
     if (stale) return a ? { ...a, how: stale + ' → ' + a.how, conf: 'review' } : { sm: null, how: stale, conf: 'review', stale: true };
     return a;
@@ -464,14 +482,16 @@ const SLOTS = [
 const store = { get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } }, set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} } };
 const DEF_EX = '쇼핑백, 부자재, ROPE BELT, 로프 벨트';
 const DEF_NOTES = {};
-const state = { data:{}, files:{}, err:{}, manual: store.get('stockrec.manual.v2', {}), learned: store.get('stockrec.learned.v1', {}), shared: {}, sharedMsg: '공유 매핑표 불러오는 중…', notes: store.get('stockrec.notes.v1', DEF_NOTES), R:null };
+const state = { data:{}, files:{}, err:{}, manual: store.get('stockrec.manual.v2', {}), hist: store.get('stockrec.hist.v1', []), names: store.get('stockrec.names.v1', {}), learned: store.get('stockrec.learned.v1', {}), shared: {}, sharedMsg: '공유 매핑표 불러오는 중…', notes: store.get('stockrec.notes.v1', DEF_NOTES), R:null };
 $('exKw').value = store.get('stockrec.exclude.v1', DEF_EX);
 const nkey = r => (r.barcode || r.name + '|' + r.opt).replace(/[^0-9A-Za-z가-힣|]/g, '').toUpperCase();
 const noteOf = r => { const n = state.notes[nkey(r)]; return n && n.diff === r.diff ? n : null; };
 
 $('terms').innerHTML = SLOTS.map((s, i) => `<label class="slot${i ? '' : ' base'}" id="slot-${s.k}"><input type="file" accept=".csv,.xlsx,.xls" data-k="${s.k}" aria-label="${s.t} 파일 올리기"><div class="t">${s.t}</div><div class="h">${s.h}</div><div class="q num" id="q-${s.k}">—</div><div class="f" id="f-${s.k}">클릭하거나 파일을 끌어 놓기</div></label><div class="op">${i ? '+' : '='}</div>`).join('');
 
-function toast(m){ const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2200); }
+function toast(m, undo){ const t = $('toast'); t.textContent = m; t.classList.toggle('undo', undo != null);
+ if (undo != null) { const b = document.createElement('button'); b.textContent = '되돌리기'; b.dataset.undo = undo; t.appendChild(b); }
+ t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on', 'undo'), undo != null ? 6000 : 2200); }
 
 async function readRows(file){
  const buf = await file.arrayBuffer();
@@ -544,7 +564,7 @@ const HEAD = `<th>셀메이트 상품 / 옵션 / 바코드</th><th class="n">셀
 function render(){
  const R = state.R;
  const views = ['tAll','tMis','tOrphan','tMap'];
- if (!R) { views.forEach(v => $(v).innerHTML = '<div class="empty">셀메이트 재고 파일을 올리면 대조 결과가 여기에 나타납니다.</div>'); $('kpis').innerHTML = ''; return; }
+ if (!R) { views.forEach(v => $(v).innerHTML = '<div class="empty">셀메이트 재고 파일을 올리면 대조 결과가 여기에 나타납니다.</div>'); $('kpis').innerHTML = ''; renderManage(); return; }
  const allBad = R.master.filter(r => r.diff !== 0);
  const known = allBad.filter(noteOf), bad = allBad.filter(r => !noteOf(r));
  const orphan = R.lines.filter(l => l.status === 'unmapped' && l.qty !== 0);
@@ -573,6 +593,7 @@ function render(){
   `<tr class="bad"><td>${CH[l.ch]}</td><td class="nm">${esc(l.name)}</td><td class="op2">${esc(l.opt)}</td><td class="n d">${fmt(l.qty)}</td><td><a href="#mapping">매핑하기</a></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">재고가 있는데 연결되지 않은 판매처 옵션은 없습니다.</div>';
 
  renderMap();
+ renderManage();
 }
 
 function renderMap(){
@@ -595,13 +616,62 @@ function renderMap(){
   : '<div class="empty">확인할 행이 없습니다.</div>';
  $('mapJson').value = exportJson();
 }
-function setManual(id, v){ if (v == null) delete state.manual[id]; else state.manual[id] = v; store.set('stockrec.manual.v2', state.manual); recompute(); }
+function rememberName(id){ const l = state.R && state.R.lines.find(x => x.id === id); if (l) { state.names[id] = l.name + ' / ' + l.opt; store.set('stockrec.names.v1', state.names); } }
+function logChange(kind, id, from, to){ state.hist.unshift({ t: Date.now(), kind, id, from: from ?? null, to: to ?? null }); state.hist = state.hist.slice(0, 300); store.set('stockrec.hist.v1', state.hist); return 0; }
+function applyVal(kind, id, v){ const m = kind === 'learned' ? state.learned : state.manual; if (v == null) delete m[id]; else m[id] = v; store.set(kind === 'learned' ? 'stockrec.learned.v1' : 'stockrec.manual.v2', m); }
+function setManual(id, v, msg){ const from = state.manual[id]; if (from === v) return; rememberName(id); applyVal('manual', id, v); logChange('manual', id, from, v); recompute(); if (msg) toast(msg, 0); }
+function delLearned(id, msg){ const from = state.learned[id]; if (from == null) return; rememberName(id); applyVal('learned', id, null); logChange('learned', id, from, null); recompute(); if (msg) toast(msg, 0); }
+function undo(i){ const h = state.hist[i]; if (!h || h.undone) return; h.undone = true; applyVal(h.kind, h.id, h.from); store.set('stockrec.hist.v1', state.hist); recompute(); toast('되돌렸습니다'); }
+const nameOf = id => { const l = state.R && state.R.lines.find(x => x.id === id); return l ? l.name + ' / ' + l.opt : state.names[id] || (state.shared[id] && state.shared[id].n) || ''; };
+function smIndex(){ const m = new Map(); if (state.R) state.R.master.forEach(r => m.set(String(r.barcode).replace(/[^0-9A-Za-z]/g, '').toUpperCase(), r)); return m; }
+function valHtml(v, idx, kind){
+ if (v == null) return `<span class="op2">${kind === 'learned' ? '누적 없음' : '수동값 없음 (공유·누적·자동 적용)'}</span>`;
+ if (v === '제외') return '<span class="tag x">대조 제외</span>';
+ if (v === '자동') return '<span class="tag">저장 매핑 무시 · 자동 규칙</span>';
+ const r = idx.get(String(v).replace(/[^0-9A-Za-z]/g, '').toUpperCase());
+ return `<span class="bc">${esc(v)}</span>` + (r ? `<div class="nm">${esc(r.name)}</div><div class="op2">${esc(r.opt)}</div>` : state.R ? '<div class="tag x">⚠ 현재 셀메이트에 없는 바코드</div>' : '');
+}
+function renderManage(){
+ const idx = smIndex(), now = new Date();
+ const tm = t => { const d = new Date(t); const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); return d.toDateString() === now.toDateString() ? '오늘 ' + hm : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm; };
+ const H = state.hist.slice(0, 100);
+ $('tHist').innerHTML = H.length ? `<div class="scroll"><table><thead><tr><th>시간</th><th>판매처 상품 / 옵션</th><th>변경 전</th><th>변경 후</th><th></th></tr></thead><tbody>${H.map((h, i) =>
+  `<tr class="${h.undone ? 'hist-undone' : ''}"><td style="white-space:nowrap">${esc(tm(h.t))}<div class="op2">${h.kind === 'learned' ? '누적 삭제' : '수동'}</div></td><td><div class="nm">${esc(nameOf(h.id))}</div><div class="bc">${esc(h.id)}</div></td><td class="chg">${valHtml(h.from, idx, h.kind)}</td><td class="chg">${valHtml(h.to, idx, h.kind)}</td>
+  <td>${h.undone ? '<span class="op2">되돌림</span>' : `<button class="btn mini" data-undo="${i}">되돌리기</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">아직 작업 이력이 없습니다.</div>';
+
+ const keys = new Set([...Object.keys(state.shared), ...Object.keys(state.learned), ...Object.keys(state.manual)]);
+ const last = {}; state.hist.forEach(h => { if (!last[h.id]) last[h.id] = h.t; });
+ const f = $('fMan').value, ch = $('cMan').value, q = $('qMan').value.trim().toUpperCase();
+ let rows = [...keys].map(k => {
+  const m = state.manual[k], l = state.learned[k], s = state.shared[k];
+  const src = m != null ? 'manual' : l != null ? 'learned' : 'shared';
+  const v = m != null ? m : l != null ? l : s.b;
+  const under = m != null ? (l != null ? ['누적', l] : s ? ['공유', s.b] : null) : (l != null && s ? ['공유', s.b] : null);
+  const stale = v !== '제외' && v !== '자동' && state.R && !idx.has(String(v).replace(/[^0-9A-Za-z]/g, '').toUpperCase());
+  return { k, ch: k.slice(0, k.indexOf('|')), src, v, under, rev: src === 'shared' && s && s.r, stale, t: last[k] || 0, n: nameOf(k) };
+ }).filter(r => (!ch || r.ch === ch) && (!q || (r.k + ' ' + r.n + ' ' + r.v).toUpperCase().includes(q)) &&
+  (!f || (f === 'ex' ? r.v === '제외' : f === 'rev' ? r.rev : f === 'stale' ? r.stale : r.src === f)));
+ rows.sort((a, b) => b.t - a.t || ({ manual: 0, learned: 1, shared: 2 }[a.src] - { manual: 0, learned: 1, shared: 2 }[b.src]) || a.k.localeCompare(b.k));
+ $('cMg').textContent = fmt(keys.size);
+ const total = rows.length; rows = rows.slice(0, 300);
+ const SRC = { manual: '수동', learned: '누적', shared: '공유' };
+ $('tMan').innerHTML = total ? `<p class="note">${fmt(total)}건${total > 300 ? ' 중 최근·우선순위 300건 표시 — 검색으로 좁혀 보세요' : ''}</p><div class="scroll"><table><thead><tr><th>출처</th><th>판매처 상품 / 옵션 · 키</th><th>연결된 셀메이트</th><th>수정</th></tr></thead><tbody>${rows.map(r =>
+  `<tr class="${r.stale ? 'bad' : ''}${r.rev ? ' rev' : ''}"><td><span class="srcTag s-${r.src}">${SRC[r.src]}</span>${r.rev ? '<div class="tag r">확인 필요</div>' : ''}</td>
+  <td><div class="nm">${esc(r.n || '(이름 정보 없음)')}</div><div class="bc">${esc(r.k)}</div></td>
+  <td class="chg">${valHtml(r.v, idx)}${r.under ? `<div class="op2">덮어쓴 ${esc(r.under[0])}값: ${esc(r.under[1])}</div>` : ''}</td>
+  <td><div class="mapcell"><input class="mapin manin" list="smList" placeholder="${state.R ? '다른 셀메이트 옵션 검색' : '바코드 직접 입력'}" data-id="${esc(r.k)}" aria-label="셀메이트 옵션 다시 지정">
+  ${r.v !== '제외' ? `<button class="btn mini" data-ex="${esc(r.k)}">제외</button>` : ''}
+  ${r.src === 'manual' ? `<button class="btn mini" data-un="${esc(r.k)}">수동 해제</button>` : ''}
+  ${r.src === 'learned' ? `<button class="btn mini" data-dl="${esc(r.k)}">누적 삭제</button>` : ''}
+  ${r.src === 'shared' && r.rev ? `<button class="btn mini" data-ok="${esc(r.k)}" data-sm="${esc(r.v)}">맞음</button>` : ''}
+  ${r.src === 'shared' ? `<button class="btn mini" data-auto="${esc(r.k)}">공유값 무시</button>` : ''}</div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">조건에 맞는 매핑이 없습니다.</div>';
+}
 function mergedEntries(){
  const names = {}; (state.R ? state.R.lines : []).forEach(l => names[l.id] = l.name + ' / ' + l.opt);
  const out = {};
  for (const [k, e] of Object.entries(state.shared)) out[k] = { ...e };
  for (const [k, b] of Object.entries(state.learned)) out[k] = { b, n: (out[k] && out[k].n) || names[k] || '' };
- for (const [k, b] of Object.entries(state.manual)) out[k] = { b, n: (out[k] && out[k].n) || names[k] || '' };
+ for (const [k, b] of Object.entries(state.manual)) { if (b === '자동') { delete out[k]; continue; } out[k] = { b, n: (out[k] && out[k].n) || names[k] || state.names[k] || '' }; }
  for (const k in out) { if (!out[k].n && names[k]) out[k].n = names[k]; if (!out[k].r) delete out[k].r; }
  return out;
 }
@@ -615,12 +685,15 @@ function download(name, text){
  try { const u = URL.createObjectURL(new Blob([text], { type: 'application/json' })); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 2000); toast('mapping.json을 내려받았습니다 (막혔다면 백업 칸에서 복사하세요)'); }
  catch(e) { copyText(text); }
 }
-document.addEventListener('change', e => { if (e.target.matches('.mapin')) { const m = /^(.+?) \| /.exec(e.target.value); if (m) { const id = e.target.dataset.id; setTimeout(() => { setManual(id, m[1]); toast('바코드 기준으로 저장 — 재계산했습니다'); }, 0); } }
+document.addEventListener('change', e => { if (e.target.matches('.mapin')) { const v = e.target.value.trim(), m = /^(.+?) \| /.exec(v); const bc = m ? m[1] : /^[A-Za-z0-9][A-Za-z0-9-]{4,}$/.test(v) ? v : ''; if (bc) { const id = e.target.dataset.id; setTimeout(() => setManual(id, bc, '바코드 기준으로 저장했습니다'), 0); } }
  if (e.target.id === 'learnOn') { store.set('stockrec.learnOn', e.target.checked); recompute(); } });
 document.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return;
- if (b.dataset.ok) { if (b.dataset.sm) { setManual(b.dataset.ok, b.dataset.sm); toast('매핑 확정'); } }
- else if (b.dataset.ex) { setManual(b.dataset.ex, '제외'); toast('대조에서 제외했습니다'); }
- else if (b.dataset.un) { setManual(b.dataset.un, null); toast('자동 매핑으로 되돌렸습니다'); }
+ if (b.dataset.undo != null) { const i = +b.dataset.undo; $('toast').classList.remove('on', 'undo'); undo(i); }
+ else if (b.dataset.ok) { if (b.dataset.sm) setManual(b.dataset.ok, b.dataset.sm, '매핑을 확정했습니다'); }
+ else if (b.dataset.ex) setManual(b.dataset.ex, '제외', '대조에서 제외했습니다');
+ else if (b.dataset.un) setManual(b.dataset.un, null, '수동 지정을 해제했습니다');
+ else if (b.dataset.dl) delLearned(b.dataset.dl, '누적 매핑을 삭제했습니다');
+ else if (b.dataset.auto) setManual(b.dataset.auto, '자동', '공유값 대신 자동 규칙을 씁니다');
  else if (b.dataset.copy) copyTable(b.dataset.copy);
  else if (b.id === 'resetAll') { if (b.dataset.sure) { delete b.dataset.sure; b.textContent = '전체 초기화'; resetAll(); } else { b.dataset.sure = 1; b.textContent = '한 번 더 누르면 초기화'; setTimeout(() => { delete b.dataset.sure; b.textContent = '전체 초기화'; }, 4000); } }
  else if (b.id === 'mapCopy') copyText($('mapJson').value);
@@ -649,8 +722,9 @@ function copyTable(which){
 }
 ['qAll','fAll','qMis','fMis'].forEach(id => $(id).addEventListener('input', render));
 ['fMap','cMapCh','qMap'].forEach(id => $(id).addEventListener('input', renderMap));
+['fMan','cMan','qMan'].forEach(id => $(id).addEventListener('input', renderManage));
 
-function route(){ const v = (location.hash || '#all').slice(1); const ok = ['all','mismatch','mapping'].includes(v) ? v : 'all';
+function route(){ const v = (location.hash || '#all').slice(1); const ok = ['all','mismatch','mapping','manage'].includes(v) ? v : 'all';
  document.querySelectorAll('.view').forEach(x => x.classList.toggle('on', x.id === 'v-' + ok));
  document.querySelectorAll('nav.tabs a').forEach(a => a.classList.toggle('on', a.dataset.v === ok)); }
 function measure(){ const nav = document.querySelector('nav.tabs'), tl = document.querySelector('.view.on .tools');
